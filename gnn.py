@@ -5,11 +5,12 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch_geometric.utils import negative_sampling
 import torch_geometric.transforms as T
-from torch_geometric.nn import GCNConv, SAGEConv
+from torch_geometric.nn import GCNConv, SAGEConv, GATConv,GATv2Conv, AGNNConv
 import wandb
 from ogb.linkproppred import PygLinkPropPredDataset, Evaluator
 
 from logger import Logger
+
 class GCN(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, num_layers,
                  dropout):
@@ -35,8 +36,30 @@ class GCN(torch.nn.Module):
             x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.convs[-1](x, adj_t)
         return x
+    
+class GAT(torch.nn.Module):
+    def __init__(self, in_channels, out_channels,
+                 heads, dropout): 
+        super(GAT, self).__init__()
 
+        self.convs = torch.nn.ModuleList()
+        self.convs.append(GATConv(in_channels, out_channels, heads, dropout))
 
+        self.dropout = dropout
+    
+    def reset_parameters(self):
+        for conv in self.convs:
+            conv.reset_parameters()
+
+    def forward(self, x, edge_index):
+        for conv in self.convs:
+            x = conv(x, edge_index)
+            x = F.relu(x)
+            x = F.dropout(x, p=self.dropout, training=self.training)
+            normalization = torch.nn.functional.normalize(x, p=2, dim=-1 )
+            x = normalization
+        return x
+    
 class SAGE(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, num_layers,
                  dropout):
@@ -62,6 +85,22 @@ class SAGE(torch.nn.Module):
         x = self.convs[-1](x, adj_t)
         return x
 
+class AGNN(torch.nn.Module):
+    def __init__(self): 
+        super(AGNN, self).__init__()
+
+        self.convs = torch.nn.ModuleList()
+        self.convs.append(AGNNConv())
+    
+    def reset_parameters(self):
+        for conv in self.convs:
+            conv.reset_parameters()
+
+    def forward(self, x, edge_index):
+        for conv in self.convs:
+            x = conv(x, edge_index)
+            x = F.relu(x)
+        return x
 
 class LinkPredictor(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, num_layers,
@@ -200,7 +239,7 @@ def test(model, predictor, x, adj_t, split_edge, evaluator, batch_size):
 
 def main():
     wandb.login()
-    wandb.init(project='Miniproject', entity="Miniproject_aml")
+    wandb.init( mode = "online" ,project='Miniproject', entity="Miniproject_aml")
     parser = argparse.ArgumentParser(description='OGBL-DDI (GNN)')
     args = parser.parse_args()
     wandb.config.update(args)
@@ -213,13 +252,17 @@ def main():
     parser.add_argument('--hidden_channels', type=int, default=256)
     parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--batch_size', type=int, default=64 * 1024)
-    parser.add_argument('--lr', type=float, default=0.005)
+    parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--eval_steps', type=int, default=5)
     parser.add_argument('--runs', type=int, default=1)
+    parser.add_argument('--use_agnn', action='store_true', default=False)
+    parser.add_argument('--use_gat', action='store_true', default=True)
+    parser.add_argument('--testing', action='store_true', default=False)
     args = parser.parse_args()
     print(args)
 
+    
     device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
     device = torch.device(device)
 
@@ -229,6 +272,7 @@ def main():
     adj_t = data.adj_t.to(device)
 
     split_edge = dataset.get_edge_split()
+
 
     # We randomly pick some training samples that we want to evaluate on:
     torch.manual_seed(12345)
@@ -240,10 +284,22 @@ def main():
         model = SAGE(args.hidden_channels, args.hidden_channels,
                      args.hidden_channels, args.num_layers,
                      args.dropout).to(device)
+    elif args.use_agnn:
+        model = AGNN().to(device)
+
+    elif args.use_gat:
+        model = GAT(args.hidden_channels, args.hidden_channels, 1  , args.dropout).to(device)
+
+    elif args.testing: 
+        print(f'Number of graphs: {len(dataset)}')
+        print(f'Number of features: {dataset.num_features}')
+        print(f'Number of classes: {dataset.num_classes}')
+        print(f'Has isolated nodes: {data.has_isolated_nodes()}')
     else:
         model = GCN(args.hidden_channels, args.hidden_channels,
                     args.hidden_channels, args.num_layers,
                     args.dropout).to(device)
+    
 
     emb = torch.nn.Embedding(data.adj_t.size(0),
                              args.hidden_channels).to(device)
@@ -278,10 +334,16 @@ def main():
                 if epoch % args.log_steps == 0:
                     for key, result in results.items():
                         train_hits, valid_hits, test_hits = result
-                        print(key)
-                        wandb.log({'Run': run + 1, 'Epoch': epoch, 'Loss': loss,
-                        'Train': 100 * train_hits, 'Valid': 100 * valid_hits,
-                        'Test': 100 * test_hits})
+                        #print(key)
+                        if key == "Hits@30":
+                            wandb.log({'Run': run + 1, 'Epoch': epoch, 'Loss': loss,
+                            'Train': 100 * train_hits, 'Valid': 100 * valid_hits,
+                            'Test': 100 * test_hits})
+                            print(
+                                f"key: {key}, "
+                                f'Epoch: {epoch}, '
+                                f'Loss: {loss:.4f}, '
+                                f'Test: {100 * test_hits:.2f}%')
 
         for key in loggers.keys():
             print(key)
