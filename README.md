@@ -17,3 +17,5 @@ The ogbl-ddi dataset is a homogeneous, unweighted, undirected graph, representin
 We have decided to work with gnn's for this implementation and we are using a predefined GCN (Graph Convolutional Network) procedure for the baseline of the model. Further we have implemented a GAN (Graph Attention Network) and a GraphSAGE method to investigate how these models compare to the baseline model. 
 
 # Key experiments and results 
+![image](https://github.com/Steinar-Slette/mini_project_aml/assets/71990567/0322b0fb-d384-473f-89ab-03a12f8c7ea1)
+
