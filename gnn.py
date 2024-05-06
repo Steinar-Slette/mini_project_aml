@@ -257,7 +257,8 @@ def main():
     parser.add_argument('--eval_steps', type=int, default=5)
     parser.add_argument('--runs', type=int, default=1)
     parser.add_argument('--use_agnn', action='store_true', default=False)
-    parser.add_argument('--use_gat', action='store_true', default=True)
+    parser.add_argument('--use_gat', action='store_true', default=False)
+    parser.add_argument('--use_SAGE', action='store_true', default=True)
     parser.add_argument('--testing', action='store_true', default=False)
     args = parser.parse_args()
     print(args)
@@ -290,6 +291,10 @@ def main():
     elif args.use_gat:
         model = GAT(args.hidden_channels, args.hidden_channels, 1  , args.dropout).to(device)
 
+    elif args.use_SAGE:
+        model = SAGE(args.hidden_channels, args.hidden_channels,
+                     args.hidden_channels, args.num_layers,
+                     args.dropout).to(device)
     elif args.testing: 
         print(f'Number of graphs: {len(dataset)}')
         print(f'Number of features: {dataset.num_features}')
